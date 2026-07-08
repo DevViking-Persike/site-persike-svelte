@@ -1,0 +1,202 @@
+# Esteira main→prod do site pessoal (modelo: infra-k8s/docs/ESTEIRA-DEPLOY.md).
+#
+# push na main → ci → build+push arm64 no Zot (tag imutável prod-<sha>) →
+# deploy no ares-k8s (runner self-hosted, SA meusite-ci escopada à ns dev)
+# com os gates: pre-flight → dry-run=server → apply → rollout status →
+# assert de imagem → smoke → rollback automático.
+#
+# Smoke agendado (cron 6/6h) valida o site vivo + imagem com prefixo prod-
+# (nunca SHA exato do HEAD: commits filtrados por paths e rollbacks tornariam
+# essa comparação um falso-vermelho permanente).
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "static/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "svelte.config.js"
+      - "vite.config.ts"
+      - "tsconfig.json"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/deploy.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "static/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "svelte.config.js"
+      - "vite.config.ts"
+      - "tsconfig.json"
+      - "Dockerfile"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+  schedule:
+    # smoke de produção a cada 6h (minuto deslocado da congestão do cron)
+    - cron: "23 */6 * * *"
+
+permissions:
+  contents: read
+
+env:
+  REG: zot.victorpersike.dev.br
+  IMG: zot.victorpersike.dev.br/meusite
+  NS: dev
+
+jobs:
+  # ---------------------------------------------------------------
+  # CI — falha barata antes de qualquer Docker (PRs e push)
+  # ---------------------------------------------------------------
+  ci:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build
+
+  # ---------------------------------------------------------------
+  # Build & push — arm64 NATIVO (repo público → ubuntu-24.04-arm),
+  # tag imutável prod-<sha> + alias mutável :prod (só debug humano)
+  # ---------------------------------------------------------------
+  docker:
+    needs: ci
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref_name == 'main'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Login no Zot
+        uses: docker/login-action@v3
+        with:
+          registry: zot.victorpersike.dev.br
+          username: ${{ secrets.ZOT_USER }}
+          password: ${{ secrets.ZOT_PASSWORD }}
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMG }}:prod-${{ github.sha }}
+            ${{ env.IMG }}:prod
+          cache-from: type=gha,scope=meusite
+          cache-to: type=gha,mode=max,scope=meusite
+
+  # ---------------------------------------------------------------
+  # Deploy — runner self-hosted (oracle-a4), kubeconfig da SA
+  # meusite-ci (ns dev, sem write de Secret). NUNCA admin.conf.
+  # Escopo do apply: SÓ base/meusite (ns compartilhada; jamais o
+  # overlay inteiro, jamais --prune).
+  # ---------------------------------------------------------------
+  deploy-prod:
+    needs: docker
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref_name == 'main'
+    runs-on: [self-hosted, deploy]
+    environment: production
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    timeout-minutes: 15
+    env:
+      # explícito: dois runners compartilham o $HOME do ghrunner
+      KUBECONFIG: /home/ghrunner/.kube/meusite-prod.conf
+      TAG: prod-${{ github.sha }}
+    steps:
+      - name: Pre-flight — pull secret e deploy existem
+        run: |
+          kubectl -n "$NS" get secret zot-creds -o name
+          kubectl -n "$NS" get deploy meusite -o name
+
+      - name: Atualizar infra-k8s (flock — clone compartilhado entre runners)
+        run: flock /home/ghrunner/infra-k8s/.git/ci.lock git -C /home/ghrunner/infra-k8s pull --ff-only origin main
+
+      - name: Render kustomize (só o meusite, tag imutável)
+        run: |
+          mkdir -p "$RUNNER_TEMP/render"
+          cp /home/ghrunner/infra-k8s/clusters/dev-staging/base/meusite/deployment.yaml \
+             /home/ghrunner/infra-k8s/clusters/dev-staging/base/meusite/service.yaml \
+             "$RUNNER_TEMP/render/"
+          cat > "$RUNNER_TEMP/render/kustomization.yaml" <<KUST
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          namespace: $NS
+          resources: [deployment.yaml, service.yaml]
+          images:
+            - name: $IMG
+              newTag: $TAG
+          KUST
+
+      - name: Validar (server dry-run)
+        run: kubectl apply -k "$RUNNER_TEMP/render" --dry-run=server
+
+      - name: Aplicar
+        run: kubectl apply -k "$RUNNER_TEMP/render"
+
+      - name: Rollout status (gate)
+        run: kubectl -n "$NS" rollout status deploy/meusite --timeout=180s
+
+      - name: Assert — cluster roda exatamente a imagem do commit
+        run: |
+          img=$(kubectl -n "$NS" get deploy meusite -o jsonpath='{.spec.template.spec.containers[0].image}')
+          if [ "$img" != "$IMG:$TAG" ]; then
+            echo "::error::imagem inesperada: $img (esperado $IMG:$TAG)"; exit 1
+          fi
+          echo "ok: $img"
+
+      - name: Smoke — apex e www (falha em 5xx)
+        run: |
+          for u in https://victorpersike.dev.br/ https://www.victorpersike.dev.br/; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$u")
+            echo "$u -> HTTP $code"
+            case "$code" in 5*) echo "::error::5xx em $u"; exit 1 ;; esac
+          done
+
+      - name: Rollback automático
+        if: failure()
+        run: |
+          kubectl -n "$NS" rollout undo deploy/meusite || true
+          kubectl -n "$NS" rollout status deploy/meusite --timeout=120s || true
+
+  # ---------------------------------------------------------------
+  # Smoke agendado — esteira/site vivos entre deploys.
+  # Prefixo prod- (não SHA exato) + réplicas prontas + borda ≠5xx.
+  # ---------------------------------------------------------------
+  smoke:
+    if: github.event_name == 'schedule'
+    runs-on: [self-hosted, deploy]
+    timeout-minutes: 5
+    env:
+      KUBECONFIG: /home/ghrunner/.kube/meusite-prod.conf
+    steps:
+      - name: Site responde na borda
+        run: |
+          for u in https://victorpersike.dev.br/ https://www.victorpersike.dev.br/; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$u")
+            echo "$u -> HTTP $code"
+            case "$code" in 5*) echo "::error::5xx em $u"; exit 1 ;; esac
+          done
+      - name: Deployment saudável e em tag da esteira
+        run: |
+          ready=$(kubectl -n "$NS" get deploy meusite -o jsonpath='{.status.readyReplicas}')
+          img=$(kubectl -n "$NS" get deploy meusite -o jsonpath='{.spec.template.spec.containers[0].image}')
+          echo "readyReplicas=$ready image=$img"
+          [ "${ready:-0}" -ge 1 ] || { echo "::error::sem réplicas prontas"; exit 1; }
+          case "$img" in "$IMG:prod-"*) echo "tag imutável ok" ;; *) echo "::error::drift: imagem fora do padrão prod-<sha>: $img"; exit 1 ;; esac

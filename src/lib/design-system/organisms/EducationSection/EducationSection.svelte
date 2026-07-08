@@ -17,7 +17,7 @@
       number="02"
       label="Formação"
       title="Educação"
-      description="Formação contínua em ciência da computação, arquitetura de software, IA e fundamentos em física e game design."
+      description="Formação contínua em ciência da computação, cybersegurança, arquitetura de software, IA e fundamentos em física e game design."
     />
 
     <div class={styles.grid}>

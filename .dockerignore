@@ -13,3 +13,6 @@ scripts.dotnet-backup
 tests
 docs
 README.md
+.env
+.env.*
+!.env.example
