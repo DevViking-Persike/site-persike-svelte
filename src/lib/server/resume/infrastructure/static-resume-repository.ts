@@ -18,7 +18,7 @@ const resume: ResumeModel = {
   },
   highlightStack: ['C#', '.NET', 'React', 'Angular', 'AWS', 'Docker', 'Go'],
   education: [
-    { period: '2026 — 2028', institution: 'Esalq/USP — Universidade de São Paulo', degree: 'MBA em Cybersegurança' },
+    { period: '2026 — 2028', institution: 'Universidade de São Paulo — Esalq', degree: 'MBA em Cybersegurança' },
     { period: '2026 — 2027/02', institution: 'Full Cycle', degree: 'MBA em Engenharia de Software com IA' },
     { period: '2024 — 2025/07', institution: 'Full Cycle', degree: 'MBA Arquitetura Full Cycle' },
     { period: '2022 — 2026', institution: 'Faculdade Descomplica', degree: 'Ciências da Computação EAD' },
