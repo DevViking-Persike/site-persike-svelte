@@ -4,7 +4,7 @@ import type { ResumeRepository } from '$lib/server/resume/domain/resume-reposito
 const resume: ResumeModel = {
   fullName: 'Victor Persike',
   title: 'Desenvolvedor Full-Stack',
-  profileImageUrl: '/images/profile.jpg',
+  profileImageUrl: '/images/profile-v3.jpg',
   aboutMe:
     'Tenho 9 anos de experiência na área da educação, atuando na formação de professores e no ensino básico, com foco em treinamentos em oficinas maker. Em 2018, decidi mudar de carreira e me especializar no desenvolvimento front-end. Desde então, trabalhei com tecnologias como WordPress e Moodle, além de desenvolver projetos com Angular, Node.js, Ionic e Nz-Zorro. Mais recentemente, tenho me dedicado ao uso de React, C#, SQL Server e Azure DevOps. Além disso, venho expandindo meus conhecimentos em linguagens como Python e Go, explorando suas possibilidades em projetos pessoais e buscando novas oportunidades de aprendizado e inovação.',
   contact: {
