@@ -20,7 +20,7 @@ const resume: ResumeModel = {
   education: [
     { period: '2026 — 2028', institution: 'Universidade de São Paulo — Esalq', degree: 'MBA em Cybersegurança' },
     { period: '2026 — 2027/02', institution: 'Full Cycle', degree: 'MBA em Engenharia de Software com IA' },
-    { period: '2024 — 2025/07', institution: 'Full Cycle', degree: 'MBA Arquitetura Full Cycle' },
+    { period: '12/2024 — 08/2026', institution: 'Full Cycle', degree: 'MBA Arquitetura Full Cycle' },
     { period: '2022 — 2026', institution: 'Faculdade Descomplica', degree: 'Ciências da Computação EAD' },
     { period: '2021 — 2022', institution: 'RecodePro', degree: 'Programação FullStack 520 horas' },
     { period: '2012 — 2022', institution: 'Universidade de São Paulo', degree: 'Licenciatura em Física' },
