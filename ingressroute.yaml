@@ -1,0 +1,41 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: meusite-https
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: meusite-http
+spec:
+  entryPoints: [web]
+  routes:
+    - match: Host(`victorpersike.dev.br`) || Host(`www.victorpersike.dev.br`)
+      kind: Rule
+      middlewares:
+        - name: meusite-https
+      services:
+        - name: meusite
+          port: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: meusite-https
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`victorpersike.dev.br`) || Host(`www.victorpersike.dev.br`)
+      kind: Rule
+      services:
+        - name: meusite
+          port: 80
+  tls:
+    certResolver: cloudflare
+    domains:
+      - main: victorpersike.dev.br
+        sans: [www.victorpersike.dev.br]

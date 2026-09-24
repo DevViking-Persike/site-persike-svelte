@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: site-persike
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingressroute.yaml
+  - infisical-zot.yaml
+images:
+  - name: 127.0.0.1:30500/meusite
+    newTag: prod-58edf07a85a3edbcaf1b0d8c66e42c3b0e15e435-35972936930-1
+    digest: sha256:3d4b657bb4634194bff4e7aa8b2e2747c1632fe7b1ddd67d136f4113c4ce59fd

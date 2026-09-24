@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meusite
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 300
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meusite
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meusite
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: h6
+        kubernetes.io/arch: amd64
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: zot-creds
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: meusite
+          image: 127.0.0.1:30500/meusite
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5173
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "5173"
+            - name: ORIGIN
+              value: https://victorpersike.dev.br
+            - name: MEUSITE_BACKEND_PROVIDER
+              value: static
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20

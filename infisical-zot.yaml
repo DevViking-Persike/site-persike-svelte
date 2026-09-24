@@ -1,0 +1,37 @@
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: zot-creds
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  hostAPI: https://secrets.victorpersike.dev.br/api
+  resyncInterval: 60
+  authentication:
+    universalAuth:
+      secretsScope:
+        projectSlug: plataforma-dev-pg-zn
+        envSlug: dev
+        secretsPath: /zot
+        recursive: false
+      credentialsRef:
+        secretName: universal-auth-credentials
+        secretNamespace: infisical-operator
+  managedSecretReference:
+    secretName: zot-creds
+    secretNamespace: site-persike
+    creationPolicy: Owner
+    secretType: kubernetes.io/dockerconfigjson
+    template:
+      includeAllSecrets: false
+      data:
+        .dockerconfigjson: |
+          {
+            "auths": {
+              "127.0.0.1:30500": {
+                "username": "{{ .ZOT_USER.Value }}",
+                "password": "{{ .ZOT_PASSWORD.Value }}",
+                "auth": "{{ (print .ZOT_USER.Value ":" .ZOT_PASSWORD.Value) | encodeBase64 }}"
+              }
+            }
+          }
