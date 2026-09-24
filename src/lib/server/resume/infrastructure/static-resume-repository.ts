@@ -34,8 +34,8 @@ const resume: ResumeModel = {
     {
       company: 'Avita',
       role: 'Desenvolvedor Full-Stack Senior',
-      period: '11/25 — Atual',
-      current: true,
+      period: '11/2025 — 09/2026',
+      current: false,
       techs: ['Angular', 'C#', '.NET', 'Dapper', 'Keycloak', 'JWT', 'RabbitMQ', 'GitLab CI/CD', 'AWS'],
       description:
         'Atuo como Fullstack Senior em um ecossistema de microserviços, com foco em Angular no front-end e C#/.NET no back-end. Desenvolvo e evoluo APIs em um microserviço dedicado usando Dapper, garantindo performance e consistência nas regras de negócio. Também integro e faço a sustentação de autenticação/autorização com Keycloak, trabalhando com JWT e fluxos de SSO. Implemento comunicação assíncrona e eventos com RabbitMQ, além de integrações com diversos serviços para processos de apólices de seguros, validações e automações. No dia a dia, uso GitLab (CI/CD) e AWS.'
@@ -94,7 +94,8 @@ const resume: ResumeModel = {
     { name: 'JavaScript', percentage: 70, category: 'languages' },
     { name: 'Go', percentage: 70, category: 'languages' },
     { name: 'Python / Rust', percentage: 57, category: 'languages' },
-    { name: 'Angular, React', percentage: 70, category: 'frontend' },
+    { name: 'Angular', percentage: 70, category: 'frontend' },
+    { name: 'React', percentage: 70, category: 'frontend' },
     { name: 'DevOps, Azure, AWS', percentage: 70, category: 'cloud-devops' },
     { name: 'Docker', percentage: 75, category: 'cloud-devops' }
   ]
