@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: site-persike
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingressroute.yaml
+  - infisical-zot.yaml
+images:
+  - name: 127.0.0.1:30500/meusite
+    newTag: pending-first-deploy

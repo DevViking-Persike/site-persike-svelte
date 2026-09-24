@@ -16,3 +16,10 @@ README.md
 .env
 .env.*
 !.env.example
+infra-k8s
+vendor
+deploy
+scripts
+temp
+*.tfstate*
+*.tfplan

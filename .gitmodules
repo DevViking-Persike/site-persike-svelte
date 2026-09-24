@@ -1,0 +1,3 @@
+[submodule "vendor/infra-k8s"]
+	path = vendor/infra-k8s
+	url = git@github.com:DevViking-Persike/infra-k8s.git

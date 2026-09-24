@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: meu-site
+  namespace: argocd
+spec:
+  description: Portfólio Victor Persike — workload no h6
+  sourceRepos:
+    - https://github.com/DevViking-Persike/site-persike-svelte.git
+  destinations:
+    - namespace: site-persike
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: ""
+      kind: Service
+    - group: traefik.io
+      kind: IngressRoute
+    - group: traefik.io
+      kind: Middleware
+    - group: secrets.infisical.com
+      kind: InfisicalSecret

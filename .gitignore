@@ -31,3 +31,11 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+## Infra local e Terraform (credenciais/state nunca no Git)
+/infra-k8s
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars.json

@@ -75,3 +75,26 @@ src/
 - **Atomic design**: atoms → molecules → organisms → templates
 - **CSS Modules** + `var(--token)` em `app.css`
 - **Svelte 5 runes** (`$state`, `$derived`, `$props`)
+
+## Produção — GitHub Actions → Zot → Argo CD → h6
+
+Site: <https://victorpersike.dev.br> e <https://www.victorpersike.dev.br>.
+
+O push na `main` executa `.github/workflows/deploy.yml`: valida o Svelte/build,
+gera uma imagem **linux/amd64**, publica no Zot e grava os manifests na branch
+`gitops` deste mesmo repositório. O Argo CD acompanha essa branch com o projeto
+**`meu-site`** e a aplicação **`meu-site`**, restritos ao namespace `site-persike`.
+O Deployment é agendado no **h6**; a borda HTTPS continua no **flex1a**.
+
+O job de publicação usa runners do GitHub e apenas `ZOT_USER`, `ZOT_PASSWORD`
+e o `GITHUB_TOKEN` com `contents: write`. A CI não recebe SSH nem kubeconfig.
+O upload ao Zot usa regctl e chunks de 32 MiB, como no Amanda. A credencial de
+pull é mantida pelo Infisical Operator a partir do projeto de plataforma.
+
+Tags seguem `prod-<commit>-<run>-<attempt>` e o manifest fixa também o digest.
+`/healthz` retorna a release embutida na imagem; a esteira só passa quando apex
+e www servem essa release por HTTPS e o portfólio responde HTTP 200. Há também
+smoke agendado a cada 6 horas. Falhas ficam vermelhas no Actions; para rollback,
+reverta o commit correspondente da branch `gitops` (o Argo fará a reconciliação).
+
+Detalhes operacionais: [deploy/README.md](deploy/README.md).
