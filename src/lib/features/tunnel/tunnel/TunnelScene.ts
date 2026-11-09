@@ -1,11 +1,5 @@
 import * as THREE from 'three';
 
-export interface TunnelStation {
-  id: string;
-  title: string;
-  subtitle: string;
-}
-
 export interface TunnelPalette {
   background: string;
   accent: string;
@@ -14,33 +8,26 @@ export interface TunnelPalette {
 }
 
 export interface TunnelProgress {
-  /** 0..100 dentro da volta atual do túnel */
+  /** 0..100 do percurso total do túnel */
   progress: number;
-  /** índice da estação à frente (mod stations.length) */
+  /** índice da estação mais próxima da câmera */
   stationIndex: number;
-  /** velocidade normalizada 0..1 */
-  speed: number;
 }
 
 export interface TunnelSceneOptions {
-  stations: TunnelStation[];
   palette: TunnelPalette;
   onProgress?: (progress: TunnelProgress) => void;
 }
 
 const RING_RADIUS = 6;
-const RING_COUNT = 80;
-const RING_SPACING = 4;
+const RING_COUNT = 90;
+const RING_SPACING = 3.5;
 const TUNNEL_DEPTH = RING_COUNT * RING_SPACING;
-const GATE_INTERVAL = 110;
-const GATE_OFFSET = -40;
-const BASE_SPEED = 9;
-const BOOST_SPEED = 26;
-const BRAKE_SPEED = 5;
-const STEER_X = 2.4;
-const STEER_Y = 1.6;
+export const TOTAL_TRAVEL = 660;
+const STEER_X = 1.6;
+const STEER_Y = 1.1;
 
-/** Cena de túnel 3D infinita — sem dependência de framework. */
+/** Cena de túnel estilo Tron dirigida por scroll — sem dependência de framework. */
 export class TunnelScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -60,23 +47,32 @@ export class TunnelScene {
   private readonly particleGeometry: THREE.BufferGeometry;
   private readonly particleMaterial: THREE.PointsMaterial;
 
+  private readonly floorGrid: THREE.GridHelper;
+  private readonly ceilingGrid: THREE.GridHelper;
+
+  private readonly pulses: THREE.Mesh[] = [];
+  private readonly pulseGeometry: THREE.BoxGeometry;
+  private readonly pulseMaterial: THREE.MeshBasicMaterial;
+  private readonly pulseData: Array<{ speed: number; angle: number }> = [];
+
   private readonly gates: Array<{
     group: THREE.Group;
-    passed: boolean;
+    spinner: THREE.Mesh;
     label: THREE.Sprite;
-    texture: THREE.CanvasTexture;
+    textures: THREE.Texture[];
+    geometries: THREE.BufferGeometry[];
+    materials: THREE.Material[];
+    center: number;
   }> = [];
 
   private raf = 0;
   private running = false;
   private cameraZ = 0;
-  private speed = BASE_SPEED;
-  private targetSpeed = BASE_SPEED;
+  private targetProgress = 0;
   private steerX = 0;
   private steerY = 0;
   private posX = 0;
   private posY = 0;
-  private readonly stationCount: number;
   private readonly options: TunnelSceneOptions;
   private readonly reducedMotion: boolean;
   private lastReported = -1;
@@ -86,7 +82,6 @@ export class TunnelScene {
     options: TunnelSceneOptions
   ) {
     this.options = options;
-    this.stationCount = Math.max(options.stations.length, 1);
     this.reducedMotion =
       typeof matchMedia === 'function' &&
       matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -97,45 +92,47 @@ export class TunnelScene {
     const { background, accent, muted, faint } = options.palette;
     const bgColor = new THREE.Color(background);
     this.scene.background = bgColor;
-    this.scene.fog = new THREE.FogExp2(bgColor.getHex(), 0.028);
+    this.scene.fog = new THREE.FogExp2(bgColor.getHex(), 0.024);
 
-    this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, 160);
+    this.camera = new THREE.PerspectiveCamera(72, 1, 0.1, 170);
     this.camera.position.set(0, 0, 0);
 
-    // Anéis do túnel — geometria e materiais compartilhados
-    this.ringGeometry = new THREE.TorusGeometry(RING_RADIUS, 0.055, 6, 64);
+    // — Anéis do túnel (geometria e materiais compartilhados) —
+    this.ringGeometry = new THREE.TorusGeometry(RING_RADIUS, 0.05, 6, 64);
     this.ringMaterials = [
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(faint), transparent: true, opacity: 0.35 }),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(muted), transparent: true, opacity: 0.5 }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(faint), transparent: true, opacity: 0.28 }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(muted), transparent: true, opacity: 0.42 }),
       new THREE.MeshBasicMaterial({
         color: new THREE.Color(accent),
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.85,
         blending: THREE.AdditiveBlending,
         depthWrite: false
       })
     ];
     for (let i = 0; i < RING_COUNT; i++) {
-      const neon = i % 10 === 0 ? 2 : i % 5 === 0 ? 1 : 0;
+      const neon = i % 12 === 0 ? 2 : i % 6 === 0 ? 1 : 0;
       const ring = new THREE.Mesh(this.ringGeometry, this.ringMaterials[neon]);
       ring.position.z = -i * RING_SPACING;
       this.scene.add(ring);
       this.rings.push(ring);
     }
 
-    // Trilhos longitudinais — dão a leitura de "tubo"
+    // — Trilhos longitudinais de energia —
     this.railGeometry = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 2),
       new THREE.Vector3(0, 0, -TUNNEL_DEPTH)
     ]);
     this.railMaterial = new THREE.LineBasicMaterial({
-      color: new THREE.Color(muted),
+      color: new THREE.Color(accent),
       transparent: true,
-      opacity: 0.18
+      opacity: 0.22,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
     });
-    const railCount = 12;
+    const railCount = 16;
     for (let i = 0; i < railCount; i++) {
-      const angle = (i / railCount) * Math.PI * 2;
+      const angle = (i / railCount) * Math.PI * 2 + 0.15;
       const rail = new THREE.Line(this.railGeometry, this.railMaterial);
       rail.position.set(
         Math.cos(angle) * RING_RADIUS,
@@ -146,12 +143,12 @@ export class TunnelScene {
       this.rails.push(rail);
     }
 
-    // Poeira estelar em volta do caminho da câmera
-    const particleCount = 500;
+    // — Pó dourado —
+    const particleCount = 520;
     const positions = new Float32Array(particleCount * 3);
     for (let i = 0; i < particleCount; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const radius = 1.4 + Math.random() * 4.2;
+      const radius = 1.2 + Math.random() * 4.4;
       positions[i * 3] = Math.cos(angle) * radius;
       positions[i * 3 + 1] = Math.sin(angle) * radius;
       positions[i * 3 + 2] = -Math.random() * TUNNEL_DEPTH;
@@ -163,9 +160,9 @@ export class TunnelScene {
     );
     this.particleMaterial = new THREE.PointsMaterial({
       color: new THREE.Color(accent),
-      size: 0.06,
+      size: 0.055,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.5,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       sizeAttenuation: true
@@ -173,80 +170,182 @@ export class TunnelScene {
     this.particles = new THREE.Points(this.particleGeometry, this.particleMaterial);
     this.scene.add(this.particles);
 
-    // Portões de estação — um por station, reciclados infinitamente
-    options.stations.forEach((station, index) => {
-      const group = new THREE.Group();
-      group.position.z = GATE_OFFSET - index * GATE_INTERVAL;
+    // — Grade estilo Tron: piso e teto —
+    const gridColor = new THREE.Color(accent);
+    const gridDim = new THREE.Color(faint);
+    this.floorGrid = new THREE.GridHelper(220, 110, gridColor, gridDim);
+    this.ceilingGrid = new THREE.GridHelper(220, 110, gridColor, gridDim);
+    for (const grid of [this.floorGrid, this.ceilingGrid]) {
+      const material = grid.material as THREE.LineBasicMaterial;
+      material.transparent = true;
+      material.opacity = grid === this.floorGrid ? 0.14 : 0.07;
+      material.depthWrite = false;
+    }
+    this.floorGrid.position.y = -3.6;
+    this.ceilingGrid.position.y = 6.8;
+    this.scene.add(this.floorGrid, this.ceilingGrid);
 
-      const accentMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(accent),
-        transparent: true,
-        opacity: 0.95,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      });
-      const gateRing = new THREE.Mesh(
-        new THREE.TorusGeometry(RING_RADIUS + 0.9, 0.16, 8, 72),
-        accentMat
-      );
-      const haloMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(muted),
-        transparent: true,
-        opacity: 0.3
-      });
-      const halo = new THREE.Mesh(
-        new THREE.TorusGeometry(RING_RADIUS + 1.5, 0.03, 6, 72),
-        haloMat
-      );
-
-      const { sprite, texture } = this.createLabel(station.title, station.subtitle);
-      sprite.position.set(0, 1.9, -1.5);
-
-      group.add(gateRing, halo, sprite);
-      this.scene.add(group);
-      this.gates.push({ group, passed: false, label: sprite, texture });
+    // — Pulsos de luz correndo pelos trilhos —
+    this.pulseGeometry = new THREE.BoxGeometry(0.09, 0.09, 9);
+    this.pulseMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(accent),
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
     });
+    const pulseCount = 10;
+    for (let i = 0; i < pulseCount; i++) {
+      const pulse = new THREE.Mesh(this.pulseGeometry, this.pulseMaterial);
+      const angle = (i / pulseCount) * Math.PI * 2;
+      const speed = 34 + Math.random() * 30;
+      this.pulseData.push({ speed, angle });
+      pulse.position.set(
+        Math.cos(angle) * (RING_RADIUS - 0.15),
+        Math.sin(angle) * (RING_RADIUS - 0.15),
+        -Math.random() * TUNNEL_DEPTH
+      );
+      this.scene.add(pulse);
+      this.pulses.push(pulse);
+    }
 
     this.registerEvents();
     this.resize();
   }
 
-  private createLabel(title: string, subtitle: string): {
+  /** Posiciona o portão i no ponto central (0..1) do percurso. */
+  setCenters(centers: number[]): void {
+    this.gates.forEach((gate, index) => {
+      const center = centers[index];
+      if (center === undefined) return;
+      gate.center = center;
+      gate.group.position.z = -center * TOTAL_TRAVEL;
+    });
+  }
+
+  /** Define o alvo de scroll (0..1) — a câmera viaja até lá com suavização. */
+  setScroll(progress01: number): void {
+    this.targetProgress = Math.min(Math.max(progress01, 0), 1);
+  }
+
+  /** Cria um portão de estação (anel segmentado giratório + brilho + rótulo). */
+  addStationGate(title: string, index: number): void {
+    const { accent, muted } = this.options.palette;
+    const group = new THREE.Group();
+    const geometries: THREE.BufferGeometry[] = [];
+    const materials: THREE.Material[] = [];
+    const textures: THREE.Texture[] = [];
+
+    // Anel interno segmentado — arcos dourados
+    const segments = 6;
+    const duty = 0.62;
+    const step = (Math.PI * 2) / segments;
+    const innerMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(accent),
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    materials.push(innerMat);
+    for (let k = 0; k < segments; k++) {
+      const arc = new THREE.TorusGeometry(RING_RADIUS + 0.7, 0.13, 6, 40, step * duty);
+      geometries.push(arc);
+      const mesh = new THREE.Mesh(arc, innerMat);
+      mesh.rotation.z = k * step;
+      group.add(mesh);
+    }
+
+    // Anel externo de "tiques" — gira lentamente
+    const ticks = 24;
+    const tickStep = (Math.PI * 2) / ticks;
+    const tickMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(muted),
+      transparent: true,
+      opacity: 0.5
+    });
+    materials.push(tickMat);
+    const spinner = new THREE.Mesh();
+    for (let k = 0; k < ticks; k++) {
+      const tick = new THREE.TorusGeometry(RING_RADIUS + 1.7, 0.028, 4, 8, tickStep * 0.45);
+      geometries.push(tick);
+      const mesh = new THREE.Mesh(tick, tickMat);
+      mesh.rotation.z = k * tickStep;
+      spinner.add(mesh);
+    }
+    group.add(spinner);
+
+    // Brilho radial atrás do portão
+    const glowTexture = this.createGlowTexture();
+    textures.push(glowTexture);
+    const glow = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: glowTexture,
+        color: new THREE.Color(accent),
+        transparent: true,
+        opacity: 0.5,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    materials.push(glow.material);
+    glow.scale.set(17, 17, 1);
+    glow.position.z = -0.8;
+    group.add(glow);
+
+    // Rótulo da estação
+    const { sprite, texture } = this.createLabel(title, index);
+    textures.push(texture);
+    materials.push(sprite.material);
+    sprite.position.set(0, 2.6, -1.2);
+    group.add(sprite);
+
+    group.position.z = -0.001 * (index + 1);
+    this.scene.add(group);
+    this.gates.push({ group, spinner, label: sprite, textures, geometries, materials, center: 0 });
+  }
+
+  private createGlowTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const gradient = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+      gradient.addColorStop(0, 'rgba(255, 240, 190, 0.9)');
+      gradient.addColorStop(0.25, 'rgba(232, 184, 39, 0.35)');
+      gradient.addColorStop(1, 'rgba(232, 184, 39, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 256, 256);
+    }
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  private createLabel(title: string, index: number): {
     sprite: THREE.Sprite;
     texture: THREE.CanvasTexture;
   } {
     const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 280;
+    canvas.width = 768;
+    canvas.height = 256;
     const ctx = canvas.getContext('2d');
+    const { accent, faint } = this.options.palette;
     if (ctx) {
-      const { accent, muted } = this.options.palette;
       ctx.textAlign = 'center';
+      ctx.fillStyle = faint;
+      ctx.font = '600 26px "JetBrains Mono", ui-monospace, monospace';
+      ctx.fillText(`${String(index + 1).padStart(2, '0')} // SEÇÃO`, 384, 74);
       ctx.fillStyle = accent;
-      ctx.font = '700 52px "JetBrains Mono", ui-monospace, monospace';
-      ctx.fillText(title.toUpperCase(), 320, 120);
-      ctx.fillStyle = muted;
-      ctx.font = '400 26px Inter, -apple-system, sans-serif';
-      const words = subtitle.split(' ');
-      let line = '';
-      const lines: string[] = [];
-      for (const word of words) {
-        const candidate = line ? `${line} ${word}` : word;
-        if (ctx.measureText(candidate).width > 580 && line) {
-          lines.push(line);
-          line = word;
-        } else {
-          line = candidate;
-        }
-      }
-      if (line) lines.push(line);
-      lines.slice(0, 3).forEach((text, i) => ctx.fillText(text, 320, 168 + i * 34));
+      ctx.font = '700 68px "JetBrains Mono", ui-monospace, monospace';
+      ctx.fillText(title.toUpperCase(), 384, 158);
+      ctx.fillStyle = accent;
+      ctx.fillRect(234, 190, 300, 3);
     }
     const texture = new THREE.CanvasTexture(canvas);
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false })
     );
-    sprite.scale.set(8.4, 3.7, 1);
+    sprite.scale.set(9.2, 3.1, 1);
     return { sprite, texture };
   }
 
@@ -255,19 +354,6 @@ export class TunnelScene {
       const rect = this.canvas.getBoundingClientRect();
       this.steerX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       this.steerY = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
-    };
-    const onPointerDown = () => {
-      this.targetSpeed = this.boostSpeed();
-    };
-    const onPointerUp = () => {
-      this.targetSpeed = this.baseSpeed();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code === 'KeyW' || event.code === 'ArrowUp') this.targetSpeed = this.boostSpeed();
-      if (event.code === 'KeyS' || event.code === 'ArrowDown') this.targetSpeed = BRAKE_SPEED;
-    };
-    const onKeyUp = () => {
-      this.targetSpeed = this.baseSpeed();
     };
     const onVisibility = () => {
       if (document.hidden) {
@@ -278,31 +364,15 @@ export class TunnelScene {
     };
 
     this.canvas.addEventListener('pointermove', onPointerMove);
-    this.canvas.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
     document.addEventListener('visibilitychange', onVisibility);
     this.disposeFns.push(
       () => this.canvas.removeEventListener('pointermove', onPointerMove),
-      () => this.canvas.removeEventListener('pointerdown', onPointerDown),
-      () => window.removeEventListener('pointerup', onPointerUp),
-      () => window.removeEventListener('keydown', onKeyDown),
-      () => window.removeEventListener('keyup', onKeyUp),
       () => document.removeEventListener('visibilitychange', onVisibility)
     );
 
     const observer = new ResizeObserver(() => this.resize());
     observer.observe(this.canvas);
     this.disposeFns.push(() => observer.disconnect());
-  }
-
-  private baseSpeed(): number {
-    return this.reducedMotion ? BASE_SPEED / 2 : BASE_SPEED;
-  }
-
-  private boostSpeed(): number {
-    return this.reducedMotion ? BOOST_SPEED / 3 : BOOST_SPEED;
   }
 
   private resize(): void {
@@ -334,21 +404,27 @@ export class TunnelScene {
   private update(): void {
     const dt = Math.min(this.clock.getDelta(), 0.1);
 
-    // Velocidade com amortecimento
-    this.speed += (this.targetSpeed - this.speed) * Math.min(dt * 2.5, 1);
-    this.cameraZ -= this.speed * dt;
+    // Viagem dirigida por scroll, com suavização
+    const targetZ = -this.targetProgress * TOTAL_TRAVEL;
+    const follow = this.reducedMotion ? 1 : Math.min(dt * 5.5, 1);
+    this.cameraZ += (targetZ - this.cameraZ) * follow;
 
-    // Direção suave (mouse), com leve inclinação de rolagem
+    // Parallax de mouse + rolagem sutil da câmera
     const targetX = this.steerX * STEER_X;
     const targetY = this.steerY * STEER_Y;
     const prevX = this.posX;
-    this.posX += (targetX - this.posX) * Math.min(dt * 4, 1);
-    this.posY += (targetY - this.posY) * Math.min(dt * 4, 1);
+    this.posX += (targetX - this.posX) * Math.min(dt * 3.5, 1);
+    this.posY += (targetY - this.posY) * Math.min(dt * 3.5, 1);
     const lateralVelocity = this.posX - prevX;
 
     this.camera.position.set(this.posX, this.posY, this.cameraZ);
-    this.camera.lookAt(this.posX * 0.35, this.posY * 0.35, this.cameraZ - 14);
-    this.camera.rotation.z += -lateralVelocity * 6;
+    this.camera.lookAt(this.posX * 0.3, this.posY * 0.3, this.cameraZ - 14);
+    this.camera.rotation.z += -lateralVelocity * 5;
+
+    // Grade infinita acompanhando a câmera (snap de 2 em 2 unidades)
+    const gridZ = Math.round(this.cameraZ / 2) * 2;
+    this.floorGrid.position.z = gridZ;
+    this.ceilingGrid.position.z = gridZ;
 
     // Recicla anéis que ficaram para trás
     for (const ring of this.rings) {
@@ -367,42 +443,47 @@ export class TunnelScene {
     }
     positions.needsUpdate = true;
 
-    // Portões: recicla e reporta passagem
-    const lapDepth = this.stationCount * GATE_INTERVAL;
-    let activeIndex = 0;
-    let nearestAhead = Infinity;
-    for (let i = 0; i < this.gates.length; i++) {
-      const gate = this.gates[i];
-      if (gate.group.position.z > this.cameraZ + 6) {
-        gate.group.position.z -= lapDepth;
-        gate.passed = false;
-      }
-      // signed > 0 ⇒ portão à frente da câmera
-      const signed = this.cameraZ - gate.group.position.z;
-      if (signed > 0 && signed < nearestAhead) {
-        nearestAhead = signed;
-        activeIndex = i;
-      }
-      if (signed <= 0) {
-        gate.passed = true;
+    // Pulsos correndo em direção à câmera
+    const pulseSpeedFactor = this.reducedMotion ? 0.35 : 1;
+    for (let i = 0; i < this.pulses.length; i++) {
+      const pulse = this.pulses[i];
+      pulse.position.z += this.pulseData[i].speed * dt * pulseSpeedFactor;
+      if (pulse.position.z > this.cameraZ + 12) {
+        pulse.position.z = this.cameraZ - TUNNEL_DEPTH * 0.75 - Math.random() * 40;
+        const angle = Math.random() * Math.PI * 2;
+        this.pulseData[i].angle = angle;
+        pulse.position.x = Math.cos(angle) * (RING_RADIUS - 0.15);
+        pulse.position.y = Math.sin(angle) * (RING_RADIUS - 0.15);
       }
     }
 
-    // Progresso 0..100 da volta atual + velocidade normalizada
-    const referenceGate = this.gates[0]?.group.position.z ?? GATE_OFFSET;
-    const intoLap = (this.cameraZ - referenceGate) / -lapDepth;
-    const progress = Math.round(((intoLap % 1) + 1) % 1 * 100);
-    const speedNorm = Math.round(
-      ((this.speed - BRAKE_SPEED) / (BOOST_SPEED - BRAKE_SPEED)) * 100
+    // Portões: gira o anel de tiques; fade do rótulo conforme distância
+    for (const gate of this.gates) {
+      if (!this.reducedMotion) {
+        gate.spinner.rotation.z += dt * 0.35;
+      }
+      const distance = Math.abs(gate.group.position.z - this.cameraZ);
+      const labelMaterial = gate.label.material as THREE.SpriteMaterial;
+      labelMaterial.opacity = Math.min(Math.max(1.6 - distance / 34, 0.15), 1);
+    }
+
+    // Estação ativa = portão mais próximo + progresso do percurso
+    let activeIndex = 0;
+    let nearest = Infinity;
+    for (let i = 0; i < this.gates.length; i++) {
+      const distance = Math.abs(this.gates[i].group.position.z - this.cameraZ);
+      if (distance < nearest) {
+        nearest = distance;
+        activeIndex = i;
+      }
+    }
+    const progress = Math.round(
+      Math.min(Math.max(this.cameraZ / -TOTAL_TRAVEL, 0), 1) * 100
     );
-    const reportKey = progress * 1000 + activeIndex;
+    const reportKey = progress * 100 + activeIndex;
     if (this.options.onProgress && reportKey !== this.lastReported) {
       this.lastReported = reportKey;
-      this.options.onProgress({
-        progress: Math.min(Math.max(progress, 0), 100),
-        stationIndex: activeIndex,
-        speed: Math.min(Math.max(speedNorm, 0), 100) / 100
-      });
+      this.options.onProgress({ progress, stationIndex: activeIndex });
     }
   }
 
@@ -412,11 +493,9 @@ export class TunnelScene {
     this.disposeFns.length = 0;
 
     for (const gate of this.gates) {
-      gate.group.traverse((object) => {
-        if (object instanceof THREE.Mesh) object.geometry.dispose();
-        if (object instanceof THREE.Sprite) object.material.dispose();
-      });
-      gate.texture.dispose();
+      for (const geometry of gate.geometries) geometry.dispose();
+      for (const material of gate.materials) material.dispose();
+      for (const texture of gate.textures) texture.dispose();
     }
     this.ringGeometry.dispose();
     for (const material of this.ringMaterials) material.dispose();
@@ -424,6 +503,10 @@ export class TunnelScene {
     this.railMaterial.dispose();
     this.particleGeometry.dispose();
     this.particleMaterial.dispose();
+    this.pulseGeometry.dispose();
+    this.pulseMaterial.dispose();
+    this.floorGrid.dispose();
+    this.ceilingGrid.dispose();
     this.renderer.dispose();
   }
 }

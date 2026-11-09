@@ -1,16 +1,27 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { TunnelScene, type TunnelSceneOptions } from '../tunnel/TunnelScene';
+  import { TunnelScene, type TunnelPalette, type TunnelProgress } from '../tunnel/TunnelScene';
   import styles from './TunnelCanvas.module.css';
 
-  let { options }: { options: TunnelSceneOptions } = $props();
+  interface Props {
+    palette: TunnelPalette;
+    stations: Array<{ id: string; title: string }>;
+    onProgress?: (progress: TunnelProgress) => void;
+    onReady?: (scene: TunnelScene) => void;
+  }
+
+  let { palette, stations, onProgress, onReady }: Props = $props();
 
   let canvas: HTMLCanvasElement | undefined = $state();
   let scene: TunnelScene | null = null;
 
   onMount(() => {
     if (!canvas) return;
-    scene = new TunnelScene(canvas, options);
+    scene = new TunnelScene(canvas, { palette, onProgress });
+    for (const [index, station] of stations.entries()) {
+      scene.addStationGate(station.title, index);
+    }
+    onReady?.(scene);
     scene.start();
     return () => {
       scene?.dispose();
@@ -19,4 +30,4 @@
   });
 </script>
 
-<canvas bind:this={canvas} class={styles.canvas} aria-label="Túnel 3D interativo"></canvas>
+<canvas bind:this={canvas} class={styles.canvas} aria-hidden="true"></canvas>
