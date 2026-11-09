@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { getGatePosition, getTunnelProgress } from './progress';
+export { TOTAL_TRAVEL } from './progress';
 
 export interface TunnelPalette {
   background: string;
@@ -23,7 +25,7 @@ const RING_RADIUS = 6;
 const RING_COUNT = 90;
 const RING_SPACING = 3.5;
 const TUNNEL_DEPTH = RING_COUNT * RING_SPACING;
-export const TOTAL_TRAVEL = 660;
+
 const STEER_X = 1.6;
 const STEER_Y = 1.1;
 
@@ -219,7 +221,7 @@ export class TunnelScene {
       const center = centers[index];
       if (center === undefined) return;
       gate.center = center;
-      gate.group.position.z = -center * TOTAL_TRAVEL;
+      gate.group.position.z = getGatePosition(center);
     });
   }
 
@@ -405,7 +407,7 @@ export class TunnelScene {
     const dt = Math.min(this.clock.getDelta(), 0.1);
 
     // Viagem dirigida por scroll, com suavização
-    const targetZ = -this.targetProgress * TOTAL_TRAVEL;
+    const targetZ = getGatePosition(this.targetProgress);
     const follow = this.reducedMotion ? 1 : Math.min(dt * 5.5, 1);
     this.cameraZ += (targetZ - this.cameraZ) * follow;
 
@@ -468,22 +470,14 @@ export class TunnelScene {
     }
 
     // Estação ativa = portão mais próximo + progresso do percurso
-    let activeIndex = 0;
-    let nearest = Infinity;
-    for (let i = 0; i < this.gates.length; i++) {
-      const distance = Math.abs(this.gates[i].group.position.z - this.cameraZ);
-      if (distance < nearest) {
-        nearest = distance;
-        activeIndex = i;
-      }
-    }
-    const progress = Math.round(
-      Math.min(Math.max(this.cameraZ / -TOTAL_TRAVEL, 0), 1) * 100
+    const { progress, stationIndex } = getTunnelProgress(
+      this.cameraZ,
+      this.gates.map((gate) => gate.group.position.z)
     );
-    const reportKey = progress * 100 + activeIndex;
+    const reportKey = progress * 100 + stationIndex;
     if (this.options.onProgress && reportKey !== this.lastReported) {
       this.lastReported = reportKey;
-      this.options.onProgress({ progress, stationIndex: activeIndex });
+      this.options.onProgress({ progress, stationIndex });
     }
   }
 

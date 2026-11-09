@@ -3,6 +3,9 @@
   import TunnelCanvas from './TunnelCanvas.svelte';
   import type { TunnelPalette, TunnelProgress, TunnelScene } from '../tunnel/TunnelScene';
   import type { ResumeModel } from '$lib/core/models/resume';
+  import { getScrollProgress, getSectionProgress } from '../tunnel/progress';
+  import { sanitizeTunnelResume } from './sanitizeTunnelResume';
+  import { createTravelController, getTravelTarget } from './travel';
   import Chip from '$lib/design-system/atoms/Chip/Chip.svelte';
   import SectionTitle from '$lib/design-system/atoms/SectionTitle/SectionTitle.svelte';
   import ProfilePhoto from '$lib/design-system/atoms/ProfilePhoto/ProfilePhoto.svelte';
@@ -12,7 +15,8 @@
   import ContactItem from '$lib/design-system/molecules/ContactItem/ContactItem.svelte';
   import styles from './TunnelView.module.css';
 
-  let { resume }: { resume: ResumeModel } = $props();
+  let { resume: resumeProp }: { resume: ResumeModel } = $props();
+  const resume = $derived(sanitizeTunnelResume(resumeProp));
 
   const sections = [
     { id: 'inicio', label: 'Início', title: 'Início' },
@@ -43,8 +47,13 @@
   let scene: TunnelScene | null = null;
 
   let scrollContainer: HTMLElement | undefined = $state();
-  let scrollAnimation = 0;
-  let isTravelling = false;
+  const travel = createTravelController({
+    now: () => performance.now(),
+    requestFrame: (step) => requestAnimationFrame(step),
+    cancelFrame: (frame) => cancelAnimationFrame(frame)
+  }, (position) => {
+    if (scrollContainer) scrollContainer.scrollTop = position;
+  });
 
   function handleProgress(p: TunnelProgress): void {
     progress = p.progress;
@@ -56,27 +65,22 @@
     syncScroll();
   }
 
-  function maxScroll(): number {
-    if (!scrollContainer) return 1;
-    return Math.max(scrollContainer.scrollHeight - scrollContainer.clientHeight, 1);
-  }
-
   function layoutGates(): void {
     if (!scene || !scrollContainer) return;
     const container = scrollContainer;
-    const total = maxScroll() + container.clientHeight;
     const centers = sections.map((section) => {
       const element = container.querySelector<HTMLElement>(`#${section.id}`);
       if (!element) return 0;
-      const center = element.offsetTop + element.offsetHeight / 2;
-      return Math.min(Math.max(center / total, 0), 1);
+      return getSectionProgress(element, container.scrollHeight, container.clientHeight);
     });
     scene.setCenters(centers);
   }
 
   function syncScroll(): void {
     if (!scene || !scrollContainer) return;
-    scene.setScroll(scrollContainer.scrollTop / maxScroll());
+    scene.setScroll(getScrollProgress(
+      scrollContainer.scrollTop, scrollContainer.scrollHeight, scrollContainer.clientHeight
+    ));
     // seção ativa = centro da janela mais próximo
     const viewportCenter = scrollContainer.scrollTop + scrollContainer.clientHeight / 2;
     let best = 0;
@@ -95,51 +99,31 @@
   }
 
   function onScroll(): void {
-    if (isTravelling) {
+    if (travel.isTravelling) {
       // scroll vindo da própria viagem: só sincroniza, não cancela
       syncScroll();
       return;
     }
-    cancelAnimationFrame(scrollAnimation);
+    travel.cancel();
     syncScroll();
   }
 
   /** Intervenção do usuário interrompe a viagem automática. */
   function interruptTravel(): void {
-    if (!isTravelling) return;
-    isTravelling = false;
-    cancelAnimationFrame(scrollAnimation);
+    travel.cancel();
   }
 
   /** Viaja pelo túnel até a seção — scroll animado com easing. */
   function travelTo(index: number): void {
     if (!scrollContainer) return;
-    const element = scrollContainer.querySelector<HTMLElement>(`#${sections[index].id}`);
+    const section = sections[index];
+    if (!section) return;
+    const element = scrollContainer.querySelector<HTMLElement>(`#${section.id}`);
     if (!element) return;
-    cancelAnimationFrame(scrollAnimation);
-    const start = scrollContainer.scrollTop;
-    const target = Math.min(
-      Math.max(element.offsetTop - (scrollContainer.clientHeight - element.offsetHeight) / 2, 0),
-      maxScroll()
+    travel.travelTo(
+      scrollContainer.scrollTop,
+      getTravelTarget(element, scrollContainer.scrollHeight, scrollContainer.clientHeight)
     );
-    const distance = Math.abs(target - start);
-    if (distance < 4) return;
-    const duration = Math.min(Math.max(distance * 0.45, 500), 3200);
-    const startTime = performance.now();
-    isTravelling = true;
-
-    const step = (now: number) => {
-      if (!scrollContainer || !isTravelling) return;
-      const t = Math.min((now - startTime) / duration, 1);
-      const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-      scrollContainer.scrollTop = start + (target - start) * eased;
-      if (t < 1) {
-        scrollAnimation = requestAnimationFrame(step);
-      } else {
-        isTravelling = false;
-      }
-    };
-    scrollAnimation = requestAnimationFrame(step);
   }
 
   function handleKeydown(event: KeyboardEvent): void {
@@ -157,7 +141,7 @@
     mounted = true;
     return () => {
       mounted = false;
-      cancelAnimationFrame(scrollAnimation);
+      travel.cancel();
     };
   });
 </script>
