@@ -54,7 +54,18 @@
       <p class={styles.about}>{aboutMe}</p>
 
       <div class={styles.actions}>
-        <IconLink href="mailto:{email}" label={email} variant="primary" ariaLabel="Enviar email">
+        <IconLink
+          href="/tunnel"
+          label="Modo Túnel 3D"
+          variant="primary"
+          ariaLabel="Explorar o portfólio no modo túnel 3D"
+        >
+          {#snippet icon()}
+            <Icon name="sparkles" />
+          {/snippet}
+        </IconLink>
+
+        <IconLink href="mailto:{email}" label={email} variant="default" ariaLabel="Enviar email">
           {#snippet icon()}
             <Icon name="email" />
           {/snippet}
