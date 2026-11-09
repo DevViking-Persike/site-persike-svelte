@@ -8,5 +8,5 @@ resources:
   - infisical-zot.yaml
 images:
   - name: 127.0.0.1:30500/meusite
-    newTag: prod-f2977c243be08c4d56a1976ddd9b5fa4bf710e67-42565380487-1
-    digest: sha256:e67f055e9ac1fe1c2ddb6de49114ea70f055e2faa89c6d18a22d08deb7f83c2c
+    newTag: prod-b73d9981ecf07d4723bde02fdd9acc37bb01543d-42571227172-1
+    digest: sha256:cfc3189129c2f2eb0ed4be4638d912d8fb06b3efc7c0448ab41c6617dde14446
