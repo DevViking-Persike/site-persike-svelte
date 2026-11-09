@@ -6,8 +6,8 @@
 </script>
 
 <svelte:head>
-  <title>{data.hero.name} — Túnel 3D</title>
-  <meta name="description" content="Portfólio de {data.hero.name} em modo túnel 3D interativo." />
+  <title>{data.resume.fullName} — Túnel 3D</title>
+  <meta name="description" content="Portfólio de {data.resume.fullName} em modo túnel 3D interativo." />
 </svelte:head>
 
-<TunnelView hero={data.hero} stations={data.stations} />
+<TunnelView resume={data.resume} />
