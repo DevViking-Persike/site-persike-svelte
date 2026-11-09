@@ -173,6 +173,7 @@
       <button
         class={[styles.selectorItem, active === index ? styles.selectorActive : ''].join(' ')}
         onclick={() => travelTo(index)}
+        aria-label={`Ir para ${String(index + 1).padStart(2, '0')} ${section.label}`}
         aria-current={active === index ? 'true' : undefined}
       >
         <span class={styles.selectorNumber}>{String(index + 1).padStart(2, '0')}</span>
